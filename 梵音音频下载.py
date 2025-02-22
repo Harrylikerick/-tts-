@@ -10,6 +10,7 @@ from gtts import gTTS
 from typing import *
 import logging
 from PIL import Image, ImageTk
+import json
 
 def batch_text_to_speech(file_path, folder_path, progress_callback=None):
     """批量转换Word和PDF文件中的纯梵文段落为音频"""
@@ -390,7 +391,7 @@ class SanskritAudioConverterGUI(tk.Tk):
 
 
     def pdf_to_word(self, input_file, output_file, progress_callback=None):
-        """将PDF转换为Word文档，并过滤掉蓝色文字和红色数字"""
+        """将PDF转换为Word文档"""
         try:
             pdf_document = fitz.open(input_file)
             doc = Document()
@@ -398,7 +399,7 @@ class SanskritAudioConverterGUI(tk.Tk):
             current_page = 0
 
             for page in pdf_document:
-                # 获取页面上的文本块，包含颜色信息
+                # 获取页面上的文本块
                 blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_LIGATURES | fitz.TEXT_PRESERVE_WHITESPACE)["blocks"]
                 for block in blocks:
                     if "lines" in block:
@@ -408,60 +409,32 @@ class SanskritAudioConverterGUI(tk.Tk):
                                 if not text:
                                     continue
                                 
-                                # 获取文本颜色，确保color是一个有效的颜色元组
                                 try:
-                                    color = span.get("color", None)
                                     font_name = span.get("font", "")
+                                    font_size = span.get("size", 0)
                                     
-                                    # 跳过MicrosoftYaHei-Bold字体的文本
-                                    if "microsoftyahei-bold" in font_name.lower():
-                                        logging.info(f"跳过MicrosoftYaHei-Bold字体文本: {text}")
-                                        continue
-                                        
-                                    # 检查是否为ZH-SANSKRIT字体
-                                    is_sanskrit_font = "zh-sanskrit" in font_name.lower()
-                                    
-                                    if color:
-                                        # 将颜色值从0-1范围转换为0-255范围
-                                        color = tuple(int(c * 255) for c in color)
-                                        logging.debug(f"处理文本: {text}, RGB颜色: {color}, 字体: {font_name}")
-                                    else:
-                                        color = (0, 0, 0)  # 默认黑色
-                                        logging.debug(f"文本无颜色信息，使用默认黑色: {text}, 字体: {font_name}")
-                                    
-                                    # 检查是否为蓝色文字（更严格的蓝色判断）
-                                    is_blue = (color[2] > 150 and  # 蓝色分量较高
-                                              color[0] < 120 and   # 红色分量较低
-                                              color[1] < 120 and   # 绿色分量较低
-                                              color[2] - max(color[0], color[1]) > 30)  # 蓝色分量显著高于其他分量
-                                    
-                                    # 检查是否为红色数字（更严格的红色判断）
-                                    is_red = (color[0] > 150 and    # 红色分量较高
-                                             color[1] < 120 and    # 绿色分量较低
-                                             color[2] < 120 and    # 蓝色分量较低
-                                             color[0] - max(color[1], color[2]) > 30)  # 红色分量显著高于其他分量
-                                    is_number = bool(re.match(r'^[0-9.]+$', text))
-                                    is_red_number = is_red and is_number
-                                    
-                                    if is_blue:
-                                        logging.info(f"跳过蓝色文字: {text}, RGB: {color}")
-                                        continue
-                                    if is_red_number:
-                                        logging.info(f"跳过红色数字: {text}, RGB: {color}")
+                                    # 跳过MicrosoftYaHei-Bold和ZH-SANSKRIT字体的文本
+                                    if "microsoftyahei-bold" in font_name.lower() or "zh-sanskrit" in font_name.lower():
+                                        logging.info(f"跳过{font_name}字体文本: {text}")
                                         continue
                                     
-                                    # 添加有效文本到Word文档
+                                    # 跳过Arial-BoldMT字体且字号为10.3的数字文本
+                                    if font_name.lower() == "arial-boldmt" and abs(font_size - 10.3) < 0.1 and text.strip().isdigit():
+                                        logging.info(f"跳过Arial-BoldMT字体数字文本: {text}")
+                                        continue
+                                    
+                                    # 添加文本到Word文档
                                     paragraph = doc.add_paragraph()
                                     run = paragraph.add_run(text)
-                                    run.font.name = 'Arial Unicode MS'  # 使用支持梵文的字体
+                                    run.font.name = 'Times New Roman'  # 使用默认字体
                                     logging.debug(f"添加文本到Word: {text}")
                                     
                                 except Exception as e:
-                                    logging.warning(f"处理文本颜色时出现错误: {str(e)}，文本: {text}, RGB: {color if 'color' in locals() else 'unknown'}")
-                                    # 如果颜色处理出错，仍然添加文本
+                                    logging.warning(f"处理文本时出现错误: {str(e)}，文本: {text}")
+                                    # 如果处理出错，仍然添加文本
                                     paragraph = doc.add_paragraph()
                                     run = paragraph.add_run(text)
-                                    run.font.name = 'Arial Unicode MS'
+                                    run.font.name = 'ZH-SANSKRIT'
                 
                 current_page += 1
                 if progress_callback:
